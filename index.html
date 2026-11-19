@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2563eb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Контроль ФН">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Контроль ФН</title>
+<style>
+  :root { --bg:#f4f5f7; --card:#fff; --text:#1c1e21; --muted:#6b7280; --line:#e5e7eb; --accent:#2563eb;
+          --ok:#16a34a; --warn:#d97706; --bad:#dc2626; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111317; --card:#1b1e24; --text:#eceef1; --muted:#9aa1ad; --line:#2a2e36; --accent:#4f8cff; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text);
+         padding:env(safe-area-inset-top) 0 calc(90px + env(safe-area-inset-bottom)); }
+  header { padding:14px 16px; display:flex; justify-content:space-between; align-items:center; }
+  header b { font-size:20px; } #status { font-size:12px; color:var(--muted); margin-top:2px; cursor:pointer; }
+  header button { background:var(--card); border:1px solid var(--line); border-radius:10px; font-size:18px; padding:8px 11px; margin-left:6px; color:var(--text); }
+  #list { padding:0 12px; display:flex; flex-direction:column; gap:10px; }
+  .card { background:var(--card); border-radius:12px; padding:12px 14px; border-left:6px solid var(--ok); }
+  .card.warn { border-color:var(--warn); } .card.bad { border-color:var(--bad); }
+  .name { font-weight:600; margin-bottom:6px; display:flex; justify-content:space-between; gap:8px; }
+  .pend { font-size:12px; color:var(--warn); font-weight:400; white-space:nowrap; }
+  .line { display:flex; justify-content:space-between; gap:8px; font-size:14px; margin-top:3px; }
+  .lbl { color:var(--muted); } .v { font-weight:600; text-align:right; }
+  .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  #fab { position:fixed; right:16px; bottom:calc(20px + env(safe-area-inset-bottom)); width:56px; height:56px; border-radius:50%;
+         border:0; background:var(--accent); color:#fff; font-size:30px; box-shadow:0 4px 12px rgba(0,0,0,.3); }
+  #modal { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:flex-end; }
+  #modal.open { display:flex; }
+  .sheet { background:var(--card); width:100%; border-radius:16px 16px 0 0; padding:16px 16px calc(16px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:10px; }
+  label { font-size:13px; color:var(--muted); }
+  input { width:100%; padding:12px; font-size:16px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); }
+  .btns { display:flex; gap:8px; margin-top:4px; }
+  .b { flex:1; padding:12px; font-size:16px; border:0; border-radius:8px; background:var(--accent); color:#fff; }
+  .b.sec { background:var(--line); color:var(--text); } .b.del { background:var(--bad); }
+  #alerts { padding:0 12px; display:flex; flex-direction:column; gap:8px; margin-bottom:10px; }
+  .al-bad, .al-warn { border-radius:10px; padding:10px 12px; font-size:13px; line-height:1.35; }
+  .al-bad { background:rgba(220,38,38,.14); color:var(--bad); } .al-warn { background:rgba(217,119,6,.15); color:var(--warn); }
+  .bookbtn { margin-top:8px; width:100%; padding:9px; font-size:14px; border:1px dashed var(--accent); border-radius:8px; background:transparent; color:var(--accent); }
+  .chk { display:flex; align-items:center; gap:8px; font-size:15px; color:var(--text); }
+  .chk input { width:auto; }
+  #empty { text-align:center; color:var(--muted); padding:30px; }
+</style>
+</head>
+<body>
+<header>
+  <div><b>Контроль ФН</b><div id="status"></div></div>
+  <div><button id="bell" title="Уведомления">🔔</button><button id="sy" title="Синхронизировать">⟳</button></div>
+</header>
+<div id="alerts"></div>
+<div id="list"></div>
+<div id="empty" style="display:none">Список пуст. Нажмите «+», чтобы добавить ФН.</div>
+<button id="fab">+</button>
+
+<div id="modal">
+  <div class="sheet">
+    <b id="ftitle">Новый ФН</b>
+    <div><label>Магазин</label><input id="f_name"></div>
+    <div><label>ФН действует до</label><input id="f_fn" type="date"></div>
+    <div><label>Лицензия ОФД до (можно пусто)</label><input id="f_ofd" type="date"></div>
+    <label class="chk"><input id="f_booked" type="checkbox"> 📞 НФ забронирован в Аверс</label>
+    <div class="btns">
+      <button class="b sec" id="b_cancel">Отмена</button>
+      <button class="b del" id="b_del">Удалить</button>
+      <button class="b" id="b_save">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const LS = {
+  get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
+  set(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
+};
+const uid = () => crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
+
+let server = LS.get('fn_cache', []);   // последняя копия таблицы
+let queue = LS.get('fn_queue', []);    // изменения, ожидающие отправки
+let syncing = false, lastErr = '', editId = null, fgBound = false, origFn = '';
+
+// ---- данные: таблица + ещё не отправленные изменения ----
+function view() {
+  let list = server.map(x => ({ ...x }));
+  for (const op of queue) {
+    if (op.type === 'delete') list = list.filter(x => x.id !== op.id);
+    else {
+      const i = list.findIndex(x => x.id === op.item.id);
+      if (i >= 0) list[i] = { ...op.item }; else list.push({ ...op.item });
+    }
+  }
+  return list;
+}
+function daysLeft(iso) {
+  if (!iso) return null;
+  const p = iso.split('-'), n = new Date();
+  return Math.round((Date.UTC(+p[0], +p[1] - 1, +p[2]) - Date.UTC(n.getFullYear(), n.getMonth(), n.getDate())) / 864e5);
+}
+const fmt = iso => iso ? iso.split('-').reverse().join('.') : '—';
+const cls = d => d === null ? '' : d <= 7 ? 'bad' : d <= 30 ? 'warn' : 'ok';
+const txt = d => d === null ? '—' : d < 0 ? 'просрочен ' + (-d) + ' дн.' : d + ' дн.';
+
+// ---- отрисовка ----
+const fmtDT = iso => { const d = new Date(iso), p = n => ('0' + n).slice(-2); return p(d.getDate()) + '.' + p(d.getMonth() + 1) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); };
+const fnBad = x => !!x.fnRaw && !x.fn;
+const ofdBad = x => !!x.ofdRaw && !x.ofd;
+
+function cardHtml(x, pend) {
+  const lines = [];
+  if (fnBad(x)) lines.push(`<div class="line"><span class="v bad">⚠ ФН: не удалось прочитать «${esc(x.fnRaw)}»</span></div>`);
+  else if (!x.fn) lines.push('<div class="line"><span class="lbl">ФН: дата не указана</span></div>');
+  else lines.push(`<div class="line"><span class="lbl">ФН до ${fmt(x.fn)}</span><span class="v ${cls(x.fd)}">${txt(x.fd)}</span></div>`);
+  if (ofdBad(x)) lines.push(`<div class="line"><span class="v bad">⚠ ОФД: не удалось прочитать «${esc(x.ofdRaw)}»</span></div>`);
+  else if (x.ofd) lines.push(`<div class="line"><span class="lbl">ОФД до ${fmt(x.ofd)}</span><span class="v ${cls(x.od)}">${txt(x.od)}</span></div>`);
+  if (x.fn && x.booked) lines.push('<div class="line"><span class="ok">✅ НФ забронирован</span></div>');
+  else if (x.fn && x.fd <= 30) lines.push(`<button class="bookbtn" data-act="book" data-id="${esc(x.id)}">📞 Забронировал НФ в Аверс</button>`);
+  const c = fnBad(x) ? 'bad' : cls(x.fd) === 'ok' ? '' : cls(x.fd);
+  return `<div class="card ${c}" data-id="${esc(x.id)}">
+      <div class="name"><span>${esc(x.name)}</span>${pend ? '<span class="pend">⏳ не отправлено</span>' : ''}</div>${lines.join('')}</div>`;
+}
+
+function renderAlerts(list) {
+  const a = [], m = LS.get('fn_meta', null);
+  const nBad = list.filter(x => fnBad(x) || ofdBad(x)).length;
+  if (nBad) a.push(['al-bad', `⚠ Не удалось прочитать даты в строках: ${nBad}. Пока их не исправят, эти ФН не контролируются.`]);
+  if (m) {
+    if (!m.lastCheck) a.push(['al-bad', '⚠ Автопроверка ещё ни разу не запускалась. В Apps Script запустите createTrigger.']);
+    else if (Date.now() - new Date(m.lastCheck).getTime() > 36 * 3600e3) a.push(['al-bad', '⚠ Автопроверка не запускалась с ' + fmtDT(m.lastCheck) + '. Проверьте триггер в Apps Script.']);
+    if (m.devices === 0) a.push(['al-warn', '🔔 Уведомления не подключены ни на одном устройстве. Нажмите 🔔.']);
+  }
+  $('alerts').innerHTML = a.map(([c, t]) => `<div class="${c}">${t}</div>`).join('');
+}
+
+function render() {
+  const pend = new Set(queue.map(o => o.type === 'delete' ? o.id : o.item.id));
+  const list = view().map(x => ({ ...x, fd: daysLeft(x.fn), od: daysLeft(x.ofd) }));
+  const key = x => fnBad(x) ? -99999 : x.fd === null ? 99999 : x.fd;
+  list.sort((a, b) => key(a) - key(b));
+  $('empty').style.display = list.length ? 'none' : 'block';
+  $('list').innerHTML = list.map(x => cardHtml(x, pend.has(x.id))).join('');
+  renderAlerts(list);
+  const n = queue.length;
+  $('status').textContent = syncing ? 'Синхронизация…'
+    : n ? 'Ждут отправки: ' + n + (!navigator.onLine ? ' (нет сети)' : lastErr ? ' · Ошибка: ' + lastErr : '')
+    : lastErr ? 'Ошибка: ' + lastErr
+    : navigator.onLine ? 'Синхронизировано' : 'Офлайн';
+  if (lastErr && !syncing) $('status').textContent += ' · нажмите для подробностей';
+  $('bell').textContent = LS.get('fn_push', false) ? '🔔✓' : '🔔';
+}
+
+// ---- диагностика: понятные ошибки и журнал ----
+function cfgProblem() {
+  if (typeof CONFIG === 'undefined') return 'не найден config.js (он должен лежать рядом с index.html)';
+  if (!CONFIG.API_URL || /ВАШ_ID/.test(CONFIG.API_URL)) return 'в config.js не заполнен API_URL';
+  return '';
+}
+function logErr(msg) {
+  const l = LS.get('fn_log', []), now = fmtDT(new Date().toISOString());
+  if (l.length && l[l.length - 1].m === msg) l[l.length - 1].t = now; else l.push({ t: now, m: msg });
+  LS.set('fn_log', l.slice(-15));
+}
+function showDiag() {
+  let host = 'не задан';
+  try { host = new URL(CONFIG.API_URL).hostname; } catch (e) {}
+  const pendingTxt = queue.map(o => '  • ' + (o.type === 'delete' ? 'удалить запись' : 'сохранить: ' + o.item.name + (o.item.fn ? ' (ФН до ' + fmt(o.item.fn) + ')' : ''))).join('\n') || '  нет';
+  const log = LS.get('fn_log', []).slice().reverse().map(x => '  ' + x.t + ' — ' + x.m).join('\n') || '  нет';
+  alert('Состояние: ' + $('status').textContent + '\nСеть: ' + (navigator.onLine ? 'есть' : 'нет') + '\nСервер: ' + host +
+        '\n\nИзменения, ожидающие отправки:\n' + pendingTxt + '\n\nПоследние ошибки:\n' + log);
+}
+
+// ---- обмен с таблицей ----
+function getKey() {
+  let k = LS.get('fn_key', '');
+  if (!k) { k = (prompt('Введите код доступа (SECRET из Code.gs)') || '').trim(); if (k) LS.set('fn_key', k); }
+  return k;
+}
+async function api(body) {
+  const key = getKey();
+  if (!key) throw new Error('нужен код доступа');
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 20000);
+  try {
+    const r = await fetch(CONFIG.API_URL, { method: 'POST', body: JSON.stringify({ ...body, key }), signal: ctl.signal });
+    const j = await r.json();
+    if (!j.ok) {
+      if (j.error === 'auth') { localStorage.removeItem('fn_key'); throw new Error('неверный код доступа'); }
+      throw new Error(j.error);
+    }
+    return j;
+  } finally { clearTimeout(t); }
+}
+async function sync() {
+  if (syncing || !navigator.onLine) { render(); return; }
+  const cp = cfgProblem();
+  if (cp) { lastErr = cp; logErr(cp); render(); return; }
+  syncing = true; render();
+  try {
+    const sent = queue.slice();
+    const j = await api({ action: 'sync', ops: sent });
+    queue = queue.slice(sent.length);   // правки, сделанные во время отправки, остаются в очереди
+    server = j.items;
+    LS.set('fn_queue', queue); LS.set('fn_cache', server);
+    LS.set('fn_meta', { lastCheck: j.lastCheck || '', devices: j.devices });
+    lastErr = '';
+  } catch (e) {
+    lastErr = e.name === 'AbortError' ? 'сервер не отвечает' : e.name === 'TypeError' ? 'нет связи с сервером' : e.message;
+    logErr(lastErr + (lastErr !== e.message ? ' [' + e.name + ': ' + e.message + ']' : ''));
+  }
+  syncing = false; render();
+}
+function addOp(op) { queue.push(op); LS.set('fn_queue', queue); render(); sync(); }
+
+// ---- форма ----
+function openForm(id) {
+  const x = id ? view().find(i => i.id === id) : null;
+  editId = x ? x.id : null;
+  $('ftitle').textContent = x ? 'Редактирование' : 'Новый ФН';
+  $('f_name').value = x ? x.name : ''; $('f_fn').value = x ? x.fn : ''; $('f_ofd').value = x ? x.ofd : '';
+  $('f_booked').checked = !!(x && x.booked); origFn = x ? x.fn : '';
+  $('b_del').style.display = x ? '' : 'none';
+  $('modal').classList.add('open');
+}
+const closeForm = () => $('modal').classList.remove('open');
+
+$('fab').onclick = () => openForm();
+$('b_cancel').onclick = closeForm;
+$('modal').onclick = e => { if (e.target === $('modal')) closeForm(); };
+$('list').onclick = e => {
+  const b = e.target.closest('[data-act="book"]');
+  if (b) {   // быстрая отметка «забронировал НФ» без открытия формы
+    const x = view().find(i => i.id === b.dataset.id);
+    if (x) addOp({ type: 'save', item: { id: x.id, name: x.name, fn: x.fn, ofd: x.ofd, booked: true } });
+    return;
+  }
+  const c = e.target.closest('.card'); if (c) openForm(c.dataset.id);
+};
+$('f_fn').onchange = () => { if ($('f_fn').value !== origFn) $('f_booked').checked = false; };   // заменили ФН — бронь старая
+$('sy').onclick = sync;
+$('status').onclick = showDiag;
+$('b_save').onclick = () => {
+  if (!$('f_name').value.trim()) return alert('Укажите магазин');
+  if (!$('f_fn').value) return alert('Укажите дату окончания ФН');
+  const item = { id: editId || uid(), name: $('f_name').value.trim(), fn: $('f_fn').value, ofd: $('f_ofd').value, booked: $('f_booked').checked };
+  closeForm(); addOp({ type: 'save', item });
+};
+$('b_del').onclick = () => {
+  if (!confirm('Удалить эту запись?')) return;
+  const id = editId; closeForm();
+  // если запись ещё не уходила на сервер — просто убираем её из очереди
+  const onServer = server.some(x => x.id === id);
+  queue = queue.filter(o => (o.type === 'delete' ? o.id : o.item.id) !== id);
+  LS.set('fn_queue', queue);
+  if (onServer) addOp({ type: 'delete', id }); else render();
+};
+
+// ---- push-уведомления ----
+async function enablePush(silent) {
+  try {
+    if (!('serviceWorker' in navigator) || !('Notification' in window)) {
+      if (!silent) alert('Откройте приложение с иконки на главном экране. iPhone: Safari → Поделиться → «На экран Домой».');
+      return;
+    }
+    if (Notification.permission !== 'granted') {
+      if (silent) return;
+      if (await Notification.requestPermission() !== 'granted') return alert('Уведомления запрещены. Разрешите их в настройках телефона.');
+    }
+    if (!navigator.onLine) { if (!silent) alert('Нужен интернет для подключения уведомлений'); return; }
+    const reg = await navigator.serviceWorker.ready;
+    const V = 'https://www.gstatic.com/firebasejs/10.12.2/';
+    const { initializeApp } = await import(V + 'firebase-app.js');
+    const { getMessaging, getToken, onMessage } = await import(V + 'firebase-messaging.js');
+    const messaging = getMessaging(initializeApp(CONFIG.FIREBASE));
+    const token = await getToken(messaging, { vapidKey: CONFIG.VAPID_KEY, serviceWorkerRegistration: reg });
+    if (!token) throw new Error('не удалось получить токен');
+    if (!fgBound) {   // push, пришедший пока приложение открыто, показываем сами
+      fgBound = true;
+      onMessage(messaging, p => { const d = p.data || {}; reg.showNotification(d.title || 'Контроль ФН', { body: d.body || '', icon: 'icon-192.png' }); });
+    }
+    await api({ action: 'register', token, test: !silent });
+    LS.set('fn_push', true); render(); sync();
+  } catch (e) { logErr('push: ' + e.message); if (!silent) alert('Не удалось включить уведомления: ' + e.message); }
+}
+$('bell').onclick = () => enablePush(false);
+
+// ---- запуск ----
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+window.addEventListener('online', sync);
+window.addEventListener('offline', render);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { render(); sync(); } });
+render(); sync(); enablePush(true);
+</script>
+</body>
+</html>
